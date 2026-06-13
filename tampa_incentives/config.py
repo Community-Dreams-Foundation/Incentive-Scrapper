@@ -50,6 +50,8 @@ INCENTIVE_TYPE_MAP = {
     "Personal Tax Exemption": "Tax Credits",
     "Corporate Tax Deduction": "Tax Credits",
     "Corporate Tax Exemption": "Tax Credits",
+    "Corporate Depreciation": "Tax Credits",   # MACRS and similar
+    "Federal Depreciation": "Tax Credits",
     "Rebate Program": "Rebates",
     "Utility Rebate Program": "Rebates",
     "State Rebate Program": "Rebates",
@@ -57,6 +59,8 @@ INCENTIVE_TYPE_MAP = {
     "Grant Program": "Grants",
     "Federal Grant Program": "Grants",
     "State Grant Program": "Grants",
+    "Green Building Incentive": "Grants",      # expedited-review/green-build programs
+    "Local Grant Program": "Grants",
     "Loan Program": "Finance Solutions",
     "PACE Financing": "Finance Solutions",
     "Performance-Based Incentive": "Investments",
@@ -91,6 +95,7 @@ def normalize_incentive_type(raw_label: str) -> str | None:
 
 # -----------------------------------------------------------------------------
 # Source registry
+# Each entry may include scrape_notes documenting freshness, gaps, and fragility.
 # -----------------------------------------------------------------------------
 SOURCES = {
     "dsire": {
@@ -98,16 +103,30 @@ SOURCES = {
         "url": "https://www.dsireusa.org/",
         "api": "https://programs.dsireusa.org/api/v1/",
         "priority": "P0",
-        "method": "api",
+        "method": "scrape",
         "expected_programs": "30-50 FL state/utility/local programs",
+        "scrape_notes": (
+            "DSIRE's paid API returns 403; we scrape the public AngularJS listing. "
+            "Each detail page embeds full JSON in a data-ng-init attribute — "
+            "parse that, not the rendered DOM. Regulatory-only entries "
+            "(Net Metering, Interconnection Standards, etc.) have no incentive_type "
+            "and are flagged review_needed=Yes by design. "
+            "Re-run monthly; DSIRE updates programs weekly."
+        ),
     },
     "rewiring_america": {
         "name": "Rewiring America — Federal IRA Calculator",
         "url": "https://www.rewiringamerica.org/app/ira-calculator",
-        "api": "https://api.rewiringamerica.org/api/v1/",  # public docs path
+        "api": "https://api.rewiringamerica.org/api/v1/",
         "priority": "P0",
         "method": "api",
         "expected_programs": "All federal IRA programs (25C, 25D, etc.)",
+        "scrape_notes": (
+            "Requires a free Rewiring America API key (REWIRING_AMERICA_API_KEY in .env). "
+            "Without a key, falls back to a curated static list of 5 core IRA programs. "
+            "API returns per-ZIP eligibility; we query a sample of Tampa ZIPs and deduplicate. "
+            "Federal programs don't expire on a fixed date — monitor IRA reauthorization news."
+        ),
     },
     "teco": {
         "name": "Tampa Electric (TECO) Rebates",
@@ -115,6 +134,12 @@ SOURCES = {
         "priority": "P0",
         "method": "scrape",
         "expected_programs": "5-10 utility rebate programs",
+        "scrape_notes": (
+            "TECO's rebate page is static HTML — straightforward BeautifulSoup parse. "
+            "Rebate amounts and eligibility change seasonally; re-run quarterly. "
+            "If the page returns 403, TECO may have moved the URL — check the site manually. "
+            "Baseline records are curated in-scraper as a fallback if the live page is unavailable."
+        ),
     },
     "duke_energy": {
         "name": "Duke Energy Florida Residential Rebates",
@@ -122,6 +147,12 @@ SOURCES = {
         "priority": "P1",
         "method": "scrape",
         "expected_programs": "3-6 utility programs (HVAC, EnergyWise, EV, weatherization)",
+        "scrape_notes": (
+            "Duke Energy Florida serves parts of the Tampa Bay area but not Tampa proper. "
+            "Programs are curated in-scraper (live page is JS-rendered and fragile). "
+            "Verify program status quarterly at duke-energy.com. "
+            "zip_code left blank — eligibility is 'Duke FL service territory', not ZIP-specific."
+        ),
     },
     "my_safe_florida_home": {
         "name": "My Safe Florida Home (hurricane mitigation grant)",
@@ -129,6 +160,12 @@ SOURCES = {
         "priority": "P1",
         "method": "scrape",
         "expected_programs": "Mitigation grant + free inspection",
+        "scrape_notes": (
+            "Funded by Florida Legislature annually — program can open/close mid-year "
+            "when funds are exhausted. Check mysafefloridahome.com for current status "
+            "before including in any consumer-facing output. "
+            "Grants up to $10,000 (2:1 match). Hurricane-season demand spikes in Q3/Q4."
+        ),
     },
     "irs_energy": {
         "name": "IRS Federal Energy Tax Credits (25C + 25D)",
@@ -136,6 +173,13 @@ SOURCES = {
         "priority": "P1",
         "method": "scrape",
         "expected_programs": "25C + 25D + home energy audit credit",
+        "scrape_notes": (
+            "IRS pages are static and rarely restructured — scrape is stable. "
+            "Credit amounts and eligible equipment change with legislation; "
+            "verify after any tax bill passage. "
+            "Note: the One Big Beautiful Bill (2025) repealed or curtailed several IRA credits — "
+            "check valid_until dates carefully and re-scrape after major tax legislation."
+        ),
     },
     "florida_housing": {
         "name": "Florida Housing Finance Corporation",
@@ -143,6 +187,13 @@ SOURCES = {
         "priority": "P1",
         "method": "scrape",
         "expected_programs": "Hometown Heroes, FL Assist, HFA Preferred, SHIP, HOME",
+        "scrape_notes": (
+            "FHFC programs are mostly curated in-scraper; the website is JS-heavy. "
+            "Hometown Heroes income limits and interest rates update frequently — "
+            "pull the PDF fact sheet from floridahousing.org quarterly. "
+            "SHIP allocations vary by county; Hillsborough SHIP is tracked separately "
+            "in the hillsborough scraper."
+        ),
     },
     "hillsborough": {
         "name": "Hillsborough County Housing",
@@ -150,6 +201,12 @@ SOURCES = {
         "priority": "P1",
         "method": "scrape",
         "expected_programs": "SHIP rehab/DPA, CDBG, emergency repair, mobile home",
+        "scrape_notes": (
+            "County website pages are fairly stable HTML. "
+            "SHIP program funds are annual — applications typically open Oct 1. "
+            "Confirm program availability with the county Housing Finance Division "
+            "before publishing; some programs exhaust funds within weeks of opening."
+        ),
     },
     "tampa_city": {
         "name": "City of Tampa Community Development",
@@ -157,6 +214,11 @@ SOURCES = {
         "priority": "P2",
         "method": "scrape",
         "expected_programs": "Local rehab + JOC + DPA programs",
+        "scrape_notes": (
+            "Tampa city programs are curated in-scraper; the CD website has inconsistent structure. "
+            "Programs are funded through federal CDBG/HOME allocations renewed annually. "
+            "Check tampa.gov/community-development for updated program guides each October."
+        ),
     },
     "fema": {
         "name": "FEMA Hazard Mitigation",
@@ -164,6 +226,12 @@ SOURCES = {
         "priority": "P2",
         "method": "scrape",
         "expected_programs": "HMGP, BRIC, FMA",
+        "scrape_notes": (
+            "FEMA mitigation grants (HMGP, BRIC, FMA) are curated in-scraper; "
+            "they flow through the Florida Division of Emergency Management, not directly to homeowners. "
+            "Individual homeowners apply through their local government. "
+            "BRIC was defunded in 2025 — verify current program status before publishing."
+        ),
     },
     "pace": {
         "name": "PACE financing (Ygrene / RenewPACE / FRED / FPFA)",
@@ -171,24 +239,39 @@ SOURCES = {
         "priority": "P2",
         "method": "scrape",
         "expected_programs": "PACE financing programs (FPFA, RenewPACE, FRED, Ygrene)",
+        "scrape_notes": (
+            "Florida PACE programs are curated in-scraper. "
+            "PACE carries a mortgage-lien risk disclosure requirement per FL law (2023). "
+            "Ygrene exited the FL market in 2022; verify active providers at floridapace.gov. "
+            "All Hillsborough ZIPs are eligible; add zip_code = HILLSBOROUGH_ZIPS join."
+        ),
     },
     "hillsborough_rebuilding": {
         "name": "Hillsborough County Rebuilding for Tomorrow (CDBG-DR)",
         "url": "https://rebuildingfortomorrow.hcfl.gov/",
-        "priority": "P0-PRIORITY",  # urgent: needs to ship to dreamlineai.org this week
+        "priority": "P0-PRIORITY",
         "method": "scrape",
         "expected_programs": "HRRP (SFH), MFH, SPH + 22 approved infra projects",
+        "scrape_notes": (
+            "URGENT: this program is live and accepting applications (as of May 2025). "
+            "Data pulled from the Rebuilding for Tomorrow public API (hcfl.gov JSON endpoints). "
+            "Infrastructure project list and award amounts update as the BCC approves phases — "
+            "re-run weekly during active disbursement. "
+            "MFH and SPH NOFAs open June 2026; update valid_until and status after NOFA launch."
+        ),
     },
 }
 
 # -----------------------------------------------------------------------------
 # Output
+# review_needed is intentionally excluded — it's an internal QA flag, not a
+# deliverable column per Anirudh's 12-column spec.
 # -----------------------------------------------------------------------------
 OUTPUT_COLUMNS = [
     "program_name",
     "state",
     "city",
-    "zip_codes",
+    "zip_code",
     "incentive_type",
     "property_type",
     "description",
@@ -196,7 +279,6 @@ OUTPUT_COLUMNS = [
     "incentive_amount",
     "valid_until",
     "updated_at",
-    "review_needed",
     "program_links",
 ]
 

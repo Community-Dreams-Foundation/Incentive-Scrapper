@@ -26,7 +26,7 @@ FL_REBATES_URL = "https://www.duke-energy.com/home/products/save-energy-and-mone
 
 
 # Duke FL service territory is multi-county; do NOT pin to a single city.
-# Leave city/zip_codes blank — territory eligibility is enforced via the
+# Leave city/zip_code blank — territory eligibility is enforced via the
 # "Duke Energy Florida customer" eligibility criterion.
 DUKE_PROGRAMS: list[dict] = [
     {
@@ -224,7 +224,7 @@ def scrape(fetcher: Fetcher, max_programs: int | None = None) -> Iterator[Incent
             program_name=prog["program_name"],
             state=PRIMARY_STATE,
             city=None,           # Duke FL is multi-county; not city-specific
-            zip_codes=None,      # eligibility = "Duke FL customer"
+            zip_code=None,      # eligibility = "Duke FL customer"
             incentive_type=prog["incentive_type"],
             property_type=prog["property_type"],
             description=description,

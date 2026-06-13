@@ -2,11 +2,15 @@
 Main orchestrator for the Tampa incentive extraction pipeline.
 
 Usage:
-    python main.py
-    python main.py --dsire-only --max 10        # quick test
-    python main.py --output mydata.csv
+    python main.py                          # full run, all sources
+    python main.py --dsire-only --max 10   # quick smoke-test
+    python main.py --skip dsire fema       # skip specific sources
+    python main.py --output mydata.csv     # custom combined output path
 
-Output: a CSV with the 13 columns defined in config.OUTPUT_COLUMNS.
+Outputs (all under output/):
+    <name>_extracted_tampa_incentives.csv  -- combined record from all active scrapers
+    by_source/<scraper>.csv               -- one file per scraper (new programs isolated here)
+    program_geo.csv                       -- program_name, source, zip_code (geo lookup table)
 """
 
 from __future__ import annotations
@@ -49,13 +53,15 @@ SCRAPERS = {
     "hillsborough_rebuilding": hillsborough_rebuilding.scrape,
 }
 
+GEO_COLUMNS = ["program_name", "source", "zip_code"]
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Tampa incentive scraper")
     p.add_argument(
         "--output",
         default=f"output/{OUTPUT_FILENAME}",
-        help="Output CSV path",
+        help="Combined output CSV path (default: output/<OUTPUT_FILENAME>)",
     )
     p.add_argument(
         "--max",
@@ -73,64 +79,94 @@ def parse_args() -> argparse.Namespace:
         "--skip",
         nargs="*",
         default=[],
-        help="Scrapers to skip (e.g. --skip dsire)",
+        help="Scrapers to skip (e.g. --skip dsire fema)",
     )
     return p.parse_args()
+
+
+def _write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def main() -> int:
     args = parse_args()
 
-    # Figure out which scrapers to run
+    # Determine active scrapers
     only_flags = {n: getattr(args, f"{n}_only") for n in SCRAPERS}
     if any(only_flags.values()):
         active = [n for n, v in only_flags.items() if v]
     else:
-        active = [n for n in SCRAPERS if n not in args.skip]
+        active = [n for n in SCRAPERS if n not in (args.skip or [])]
 
-    print(f"Running scrapers: {active}")
-    print()
+    print(f"Running scrapers: {active}\n")
 
     fetcher = Fetcher()
-    records: list[IncentiveRecord] = []
+    all_records: list[IncentiveRecord] = []
+    by_source: dict[str, list[IncentiveRecord]] = {}
 
     for name in active:
         scrape_fn = SCRAPERS[name]
+        source_records: list[IncentiveRecord] = []
         try:
             for rec in scrape_fn(fetcher, max_programs=args.max):
-                records.append(rec)
+                source_records.append(rec)
+                all_records.append(rec)
         except Exception as e:
             import traceback
             print(f"[{name}] FAILED: {e}")
             traceback.print_exc()
+        by_source[name] = source_records
         print()
 
-    if not records:
+    if not all_records:
         print("No records collected. Exiting with error.")
         return 1
 
-    # Write CSV
     out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS, quoting=csv.QUOTE_MINIMAL)
-        writer.writeheader()
-        for rec in records:
-            writer.writerow(rec.to_csv_row())
+
+    # 1. Combined output
+    _write_csv(out_path, OUTPUT_COLUMNS, [r.to_csv_row() for r in all_records])
+    print(f"Combined:  {out_path}  ({len(all_records)} records)")
+
+    # 2. Per-scraper files → output/by_source/<name>.csv
+    by_source_dir = out_path.parent / "by_source"
+    for name, recs in by_source.items():
+        if not recs:
+            continue
+        src_path = by_source_dir / f"{name}.csv"
+        _write_csv(src_path, OUTPUT_COLUMNS, [r.to_csv_row() for r in recs])
+        print(f"  {name}: {src_path}  ({len(recs)} records)")
+
+    # 3. program_geo.csv — one row per program with its ZIP list
+    geo_rows: list[dict] = []
+    for name, recs in by_source.items():
+        for rec in recs:
+            geo_rows.append({
+                "program_name": rec.program_name,
+                "source": name,
+                "zip_code": rec.zip_code or "",
+            })
+    geo_path = out_path.parent / "program_geo.csv"
+    _write_csv(geo_path, GEO_COLUMNS, geo_rows)
+    print(f"Geo:       {geo_path}  ({len(geo_rows)} rows)")
 
     # Summary
     by_type: dict[str, int] = {}
     review_count = 0
-    for rec in records:
+    for rec in all_records:
         key = rec.incentive_type or "(unmapped)"
         by_type[key] = by_type.get(key, 0) + 1
         if rec.review_needed == "Yes":
             review_count += 1
 
+    print()
     print("=" * 60)
-    print(f"Wrote {len(records)} records to {out_path}")
-    print(f"  needs review: {review_count}")
-    print(f"  by incentive_type:")
+    print(f"Total: {len(all_records)} records  |  needs review: {review_count}")
+    print("  by incentive_type:")
     for k, v in sorted(by_type.items(), key=lambda kv: -kv[1]):
         print(f"    {v:3d}  {k}")
     print("=" * 60)

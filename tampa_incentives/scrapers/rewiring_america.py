@@ -109,7 +109,7 @@ def _from_static() -> Iterator[IncentiveRecord]:
             program_name=prog["program_name"],
             state=PRIMARY_STATE,  # nationwide but our scope is FL
             city=None,             # statewide → per Dreamline rule, leave blank
-            zip_codes=None,
+            zip_code=None,
             incentive_type=prog["incentive_type"],
             property_type=prog["property_type"],
             description=prog["description"],

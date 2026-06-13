@@ -124,6 +124,10 @@ _DSIRE_TYPE_TO_BUCKET = {
     "Corporate Tax Exemption": "Tax Credits",
     "Property Tax Incentive": "Tax Credits",
     "Sales Tax Incentive": "Tax Credits",
+    "Corporate Depreciation": "Tax Credits",    # MACRS (Modified Accelerated Cost-Recovery)
+    "Federal Depreciation": "Tax Credits",
+    "Green Building Incentive": "Grants",       # expedited-permit / green-build programs
+    "Local Grant Program": "Grants",
     "Rebate Program": "Rebates",
     "Utility Rebate Program": "Rebates",
     "State Rebate Program": "Rebates",
@@ -265,7 +269,7 @@ def _build_record(program: dict, program_id: str) -> IncentiveRecord:
         program_name=name,
         state=PRIMARY_STATE,
         city=city,
-        zip_codes=zip_codes,
+        zip_code=zip_codes,
         incentive_type=incentive_type,
         property_type=property_type,
         description=description,

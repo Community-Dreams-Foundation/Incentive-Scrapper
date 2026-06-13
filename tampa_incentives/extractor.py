@@ -55,7 +55,7 @@ def extract_with_claude(
     content_type: str = "html_text",
     state: str = "Florida",
     city: Optional[str] = None,
-    zip_codes: Optional[str] = None,
+    zip_code: Optional[str] = None,
 ) -> Optional[IncentiveRecord]:
     """Call Claude to extract a structured record. Returns None on failure
     or when ANTHROPIC_API_KEY is not set.
@@ -103,7 +103,7 @@ def extract_with_claude(
         program_name=data.get("program_name") or "Unknown program",
         state=state,
         city=city,
-        zip_codes=zip_codes,
+        zip_code=zip_code,
         incentive_type=data.get("incentive_type"),
         property_type=data.get("property_type"),
         description=data.get("description"),

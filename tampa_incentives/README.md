@@ -42,7 +42,7 @@ Brief, Section 6.
 | program_name | Title as written on source |
 | state | Florida (default) |
 | city | Filled only when program is city/locality-specific; blank for statewide/federal |
-| zip_codes | Filled for county- and city-level programs (Hillsborough ZIPs); blank for statewide/federal |
+| zip_code | Comma-separated ZIPs for county- and city-level programs; blank for statewide/federal |
 | incentive_type | One of: Grants, Rebates, Finance Solutions, Tax Credits, Investments |
 | property_type | Source-faithful (e.g. "Residential, Commercial") |
 | description | 1-3 sentence summary |
@@ -50,7 +50,7 @@ Brief, Section 6.
 | incentive_amount | Source-faithful free text |
 | valid_until | ISO YYYY-MM-DD or blank if open-ended |
 | updated_at | ISO YYYY-MM-DD when this record was extracted |
-| review_needed | "Yes" if any required field is missing/ambiguous or program is regulatory-only |
+| ~~review_needed~~ | Internal QA flag — excluded from export. Filter on `review_needed` in Python before loading to DB. |
 | program_links | Direct URL to the official program page |
 
 ## Setup
@@ -126,9 +126,12 @@ tampa_incentives/
 ├── main.py                         # orchestrator + CSV writer
 ├── cache/                          # disk-cached HTML/JSON (auto-created)
 └── output/
-    ├── SaiMohan_extracted_tampa_incentives.csv     # full pipeline output
-    └── hillsborough_priority/
-        └── hillsborough_priority_incentives.csv    # CDBG-DR portal only
+    ├── SaiMohan_extracted_tampa_incentives.csv   # combined output (12 cols, no review_needed)
+    ├── by_source/
+    │   ├── dsire.csv                           # one file per scraper
+    │   ├── hillsborough_rebuilding.csv
+    │   └── ...                                 # <name>.csv for each active scraper
+    └── program_geo.csv                         # program_name, source, zip_code
 ```
 
 ## Hillsborough priority workflow
@@ -155,17 +158,87 @@ rows, 0 review_needed**.
 
 ## Adding a new source
 
-1. Create `scrapers/<name>.py` with a `scrape(fetcher, max_programs=None)`
-   function that yields `IncentiveRecord` objects.
-2. Register it in `main.SCRAPERS` and `config.SOURCES`.
-3. If the source uses a category label not in `config.INCENTIVE_TYPE_MAP`,
-   add the mapping. The brief only allows 5 types — everything must
-   normalize to one of: Grants, Rebates, Finance Solutions, Tax Credits,
-   Investments.
+### 1. Create the scraper file
 
-Follow the curated-baseline + live-verify pattern in `teco.py` or
-`hillsborough_rebuilding.py` — that's the most reliable shape and survives
-both transient site outages and authentic structural changes.
+Create `scrapers/<name>.py`. The only required export is:
+
+```python
+def scrape(fetcher: Fetcher, max_programs: int | None = None) -> Iterator[IncentiveRecord]:
+    ...
+    yield IncentiveRecord(
+        program_name="...",
+        state="Florida",
+        city=None,                  # only if city-specific
+        zip_code=None,              # only if ZIP-restricted; use ", ".join(HILLSBOROUGH_ZIPS) for county-wide
+        incentive_type="Grants",    # must be one of the 5 allowed types
+        property_type="Residential",
+        description="...",
+        eligibility_criteria="...",
+        incentive_amount="...",
+        valid_until=None,           # ISO YYYY-MM-DD or None
+        updated_at=date.today().isoformat(),
+        program_links="https://...",
+    )
+```
+
+Use `fetcher.get(url)` for all HTTP — it enforces rate limits, checks
+robots.txt, and writes to the disk cache automatically.
+
+Follow the **curated-baseline + live-verify** pattern from `teco.py`:
+hardcode the known programs so the scraper still produces output if the
+live page is down, then check the live page and update amounts/status.
+
+### 2. Register the scraper
+
+In `main.py`, add to `SCRAPERS`:
+
+```python
+from scrapers import my_new_source
+
+SCRAPERS = {
+    ...
+    "my_new_source": my_new_source.scrape,
+}
+```
+
+In `config.py`, add to `SOURCES`:
+
+```python
+SOURCES = {
+    ...
+    "my_new_source": {
+        "name": "Full human-readable name",
+        "url": "https://...",
+        "priority": "P1",           # P0 / P1 / P2
+        "method": "scrape",         # "scrape" or "api"
+        "expected_programs": "3-5 programs",
+        "scrape_notes": (
+            "One or two sentences on freshness, fragility, auth needs, "
+            "and anything the next developer should know."
+        ),
+    },
+}
+```
+
+### 3. Add any new type mappings
+
+If the source uses a label not already in `config.INCENTIVE_TYPE_MAP`,
+add it there. The 5 allowed output values are:
+
+`Grants` · `Rebates` · `Finance Solutions` · `Tax Credits` · `Investments`
+
+Records whose type cannot be mapped should be left with
+`incentive_type=None`; the model auto-sets `review_needed="Yes"`.
+
+### 4. Run and verify
+
+```bash
+python main.py --my-new-source-only --max 5
+```
+
+Check `output/by_source/my_new_source.csv` — new scrapers write to their
+own file so they never pollute the combined output until you're confident.
+Inspect `output/program_geo.csv` to confirm ZIPs look right.
 
 ## Turning on LLM extraction
 

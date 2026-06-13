@@ -5,7 +5,7 @@ Two flagship federal credits under the Inflation Reduction Act:
   - 25C  Energy Efficient Home Improvement Credit
   - 25D  Residential Clean Energy Credit
 
-These are federal, so city/zip_codes stay blank. Source-of-truth URLs are the
+These are federal, so city/zip_code stay blank. Source-of-truth URLs are the
 permanent IRS pages; we live-verify them on each run.
 
 Source: irs.gov/credits-deductions/individuals/...
@@ -119,7 +119,7 @@ def scrape(fetcher: Fetcher, max_programs: int | None = None) -> Iterator[Incent
             program_name=prog["program_name"],
             state=PRIMARY_STATE,   # federal program but stored under FL row for FL CSV
             city=None,
-            zip_codes=None,        # federal — no ZIP restriction
+            zip_code=None,        # federal — no ZIP restriction
             incentive_type=prog["incentive_type"],
             property_type=prog["property_type"],
             description=prog["description"],

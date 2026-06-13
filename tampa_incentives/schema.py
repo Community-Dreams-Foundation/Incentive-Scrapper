@@ -1,13 +1,12 @@
 """
-Schema for the output CSV row. Matches Anirudh's 12 columns + zip_codes.
+Schema for the output CSV row. Matches Anirudh's 12-column spec.
 
-review_needed is auto-set to 'Yes' if any required field is missing/ambiguous.
+review_needed is tracked internally for QA but is NOT written to the export CSV.
 """
 
 from __future__ import annotations
-from datetime import date
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 
 IncentiveType = Literal[
@@ -20,20 +19,22 @@ class IncentiveRecord(BaseModel):
 
     program_name: str
     state: str = "Florida"
-    city: Optional[str] = None  # None = statewide / not city-specific
-    zip_codes: Optional[str] = None  # comma-separated, or None for statewide
+    city: Optional[str] = None          # None = statewide / not city-specific
+    zip_code: Optional[str] = None      # comma-separated ZIPs, or None for statewide
     incentive_type: Optional[IncentiveType] = None
     property_type: Optional[str] = None
     description: Optional[str] = None
     eligibility_criteria: Optional[str] = None
     incentive_amount: Optional[str] = None  # free-text, source-faithful
-    valid_until: Optional[str] = None  # ISO YYYY-MM-DD or None
-    updated_at: Optional[str] = None  # ISO YYYY-MM-DD
-    review_needed: Literal["Yes", "No"] = "No"
+    valid_until: Optional[str] = None       # ISO YYYY-MM-DD or None
+    updated_at: Optional[str] = None        # ISO YYYY-MM-DD
     program_links: Optional[str] = None
 
-    # Required-field set per Anirudh's spec. If any of these are empty/None,
-    # we auto-flag review_needed=Yes.
+    # Internal QA flag — auto-set when required fields are missing/ambiguous.
+    # Kept on the model for filtering/reporting but excluded from CSV export.
+    review_needed: Literal["Yes", "No"] = "No"
+
+    # Fields required for a clean record (review_needed="No").
     _REQUIRED_FOR_CLEAN = (
         "program_name",
         "state",
@@ -56,12 +57,12 @@ class IncentiveRecord(BaseModel):
         return self
 
     def to_csv_row(self) -> dict:
-        """Return a dict in the column order Anirudh asked for."""
+        """Return a dict keyed to OUTPUT_COLUMNS (review_needed excluded)."""
         return {
             "program_name": self.program_name or "",
             "state": self.state or "",
             "city": self.city or "",
-            "zip_codes": self.zip_codes or "",
+            "zip_code": self.zip_code or "",
             "incentive_type": self.incentive_type or "",
             "property_type": self.property_type or "",
             "description": self.description or "",
@@ -69,6 +70,5 @@ class IncentiveRecord(BaseModel):
             "incentive_amount": self.incentive_amount or "",
             "valid_until": self.valid_until or "",
             "updated_at": self.updated_at or "",
-            "review_needed": self.review_needed,
             "program_links": self.program_links or "",
         }
